@@ -1,0 +1,49 @@
+From d51756af3dafa2d09ed8f351a48431333318ba31 Mon Sep 17 00:00:00 2001
+From: Lumir Balhar <lbalhar@redhat.com>
+Date: Wed, 7 Nov 2018 11:54:43 +0100
+Subject: [PATCH] Fix issue when interface has no IPv4 address assigned.
+
+---
+ scripts/pifconfig | 19 +++++++++++++------
+ 1 file changed, 13 insertions(+), 6 deletions(-)
+ mode change 100755 => 100644 scripts/pifconfig
+
+diff --git a/scripts/pifconfig b/scripts/pifconfig
+old mode 100755
+new mode 100644
+index d1bcdb4..f2b0707
+--- a/scripts/pifconfig
++++ b/scripts/pifconfig
+@@ -60,16 +60,23 @@ def flags2str(flags):
+ 
+ 
+ def show_config(device):
+-    ipaddr = ethtool.get_ipaddr(device)
+-    netmask = ethtool.get_netmask(device)
++    try:
++        ipaddr = ethtool.get_ipaddr(device)
++        netmask = ethtool.get_netmask(device)
++        broadcast = ethtool.get_broadcast(device)
++    except (IOError, OSError):
++        ipaddr, netmask, broadcast = None, None, None
+     flags = ethtool.get_flags(device)
+     print('%s' % device)
+     if not (flags & ethtool.IFF_LOOPBACK):
+         print('\tHWaddr %s' % ethtool.get_hwaddr(device))
+-    print('\tinet addr:%s' % ipaddr)
+-    if not (flags & (ethtool.IFF_LOOPBACK | ethtool.IFF_POINTOPOINT)):
+-        print('\tBcast:%s' % ethtool.get_broadcast(device))
+-    print('\tMask:%s' % netmask)
++    if ipaddr is not None:
++        print('\tinet addr:%s' % ipaddr)
++    if broadcast is not None and \
++       not (flags & (ethtool.IFF_LOOPBACK | ethtool.IFF_POINTOPOINT)):
++        print('\tBcast:%s' % broadcast)
++    if netmask is not None:
++        print('\tMask:%s' % netmask)
+     for info in ethtool.get_interfaces_info(device):
+         for addr in info.get_ipv6_addresses():
+             print('\tinet6 addr: %s/%s Scope: %s'
+-- 
+2.19.1
+

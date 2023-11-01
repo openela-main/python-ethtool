@@ -1,0 +1,105 @@
+From 7279bdb8a281de67be61f745f24344d0574e32cf Mon Sep 17 00:00:00 2001
+From: Lumir Balhar <lbalhar@redhat.com>
+Date: Tue, 4 Dec 2018 11:58:48 +0100
+Subject: [PATCH 1/2] Allow pifconfig script to show multiple IPv4 addresses
+
+---
+ scripts/pifconfig     | 34 ++++++++++++++++++----------------
+ tests/test_ethtool.py | 15 +++++++++------
+ 2 files changed, 27 insertions(+), 22 deletions(-)
+ mode change 100644 => 100755 scripts/pifconfig
+
+diff --git a/scripts/pifconfig b/scripts/pifconfig
+old mode 100644
+new mode 100755
+index f2b0707..c4e726d
+--- a/scripts/pifconfig
++++ b/scripts/pifconfig
+@@ -17,10 +17,17 @@
+ from __future__ import unicode_literals, print_function
+ 
+ import ethtool
++import socket
++import struct
+ import sys
+ from optparse import OptionParser
+ 
+ 
++def bits2netmask(bits):
++    mask = (1 << 32) - (1 << 32 >> bits)
++    return socket.inet_ntoa(struct.pack(">L", mask))
++
++
+ def flags2str(flags):
+     string = ''
+     if flags & ethtool.IFF_UP:
+@@ -60,24 +67,19 @@ def flags2str(flags):
+ 
+ 
+ def show_config(device):
+-    try:
+-        ipaddr = ethtool.get_ipaddr(device)
+-        netmask = ethtool.get_netmask(device)
+-        broadcast = ethtool.get_broadcast(device)
+-    except (IOError, OSError):
+-        ipaddr, netmask, broadcast = None, None, None
+     flags = ethtool.get_flags(device)
+-    print('%s' % device)
+-    if not (flags & ethtool.IFF_LOOPBACK):
+-        print('\tHWaddr %s' % ethtool.get_hwaddr(device))
+-    if ipaddr is not None:
+-        print('\tinet addr:%s' % ipaddr)
+-    if broadcast is not None and \
+-       not (flags & (ethtool.IFF_LOOPBACK | ethtool.IFF_POINTOPOINT)):
+-        print('\tBcast:%s' % broadcast)
+-    if netmask is not None:
+-        print('\tMask:%s' % netmask)
++
+     for info in ethtool.get_interfaces_info(device):
++        print(device)
++        if not (flags & ethtool.IFF_LOOPBACK):
++                print('\tHWaddr %s' % ethtool.get_hwaddr(device))
++
++        for addr in info.get_ipv4_addresses():
++            print('\tinet addr:%s' % addr.address, end=" ")
++            if not (flags & (ethtool.IFF_LOOPBACK | ethtool.IFF_POINTOPOINT)):
++                print('Bcast:%s' % addr.broadcast, end=" ")
++            print('Mask:%s' % bits2netmask(addr.netmask))
++
+         for addr in info.get_ipv6_addresses():
+             print('\tinet6 addr: %s/%s Scope: %s'
+                   % (addr.address,
+diff --git a/tests/test_ethtool.py b/tests/test_ethtool.py
+index 2d8bc0e..6162cd3 100755
+--- a/tests/test_ethtool.py
++++ b/tests/test_ethtool.py
+@@ -175,17 +175,20 @@ class EthtoolTests(unittest.TestCase):
+             scraped = None
+ 
+         self.assertIsStringOrNone(ei.ipv4_address)
+-        if scraped:
+-            self.assertEqual(ei.ipv4_address, scraped.inet)
++        if scraped and scraped.inet:
++            addresses = [ip.address for ip in ei.get_ipv4_addresses()]
++            self.assertTrue(scraped.inet in addresses)
+ 
+         self.assertIsStringOrNone(ei.ipv4_broadcast)
+-        if scraped and scraped.broadcast:
++        if scraped and scraped.broadcast not in (None, '0.0.0.0'):
+             # Broadcast is optional
+-            self.assertEqual(ei.ipv4_broadcast, scraped.broadcast)
++            broadcasts = [ip.broadcast for ip in ei.get_ipv4_addresses()]
++            self.assertTrue(scraped.broadcast in broadcasts)
+ 
+         self.assertIsInt(ei.ipv4_netmask)
+-        if scraped:
+-            self.assertEqual(ei.ipv4_netmask, scraped.get_netmask_bits())
++        if scraped and scraped.netmask:
++            netmasks = [ip.netmask for ip in ei.get_ipv4_addresses()]
++            self.assertTrue(scraped.get_netmask_bits(), netmasks)
+ 
+         self.assertIsStringOrNone(ei.mac_address)
+         if scraped and scraped.hwaddr and scraped.hwtitle.lower() != 'unspec':
+-- 
+2.19.2
+
